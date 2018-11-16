@@ -43,7 +43,7 @@ def init(loop):
 
 # .add_route作用是将URL注册进route（也就是之前处理多个URL时也是注册到route属性），将URL和index处理函数绑定，绑定的作用是当浏览器敲击URL时，返回处理函数的内容，也就是返回一个HTTP响应。
 
-# loop.create_server是创建一个监听服务，后面的参数传入监听服务器的IP、端口、HTTP协议簇。然后init函数返回的就是这个监听服务。app.make_handler()？？？？
+# loop.create_server是创建一个监听服务，后面的参数传入监听服务器的IP、端口、HTTP协议簇。然后init函数返回的就是这个监听服务。aiohttp.RequestHandlerFactory 可以用 make_handle() 创建，用来处理 HTTP 协议
 
 # get_event_loop创建一个事件循环，然后使用run_until_complete将协程注册到事件循环，并启动事件循环。实际也是一个协程。创建事件循环的目的是因为协程对象开始运行需要在一个已经运作的协程中。
 
