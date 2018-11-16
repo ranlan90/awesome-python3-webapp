@@ -13,7 +13,8 @@ from orm import Model, StringField, BooleanField, FloatField, TextField
 
 def next_id():
 	 # uuid4()以随机方式生成uuid,hex属性将uuid转为32位的16进制数
-	 time.time()#%015d意思是打印结果为15位整数，当整数的位数不够15位时，在整数左侧补0，uuid.uuid4() : 基于随机数hex() 函数用于将10进制整数转换成16进制，以字符串形式表示。
+	#time.time()
+	#%015d意思是打印结果为15位整数，当整数的位数不够15位时，在整数左侧补0，uuid.uuid4() : 基于随机数hex() 函数用于将10进制整数转换成16进制，以字符串形式表示。
     # 返回当前时间的时间戳（1970纪元后经过的浮点秒数）。
     return '%015d%s000' % (int(time.time() * 1000), uuid.uuid4().hex)
 

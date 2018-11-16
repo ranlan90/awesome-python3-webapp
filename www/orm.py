@@ -114,13 +114,13 @@ class Field(object):
 #表的不同列的字段的类型不同
 class StringField(Field):
     # ' 从Field继承，定义一个字符类，在ORM中对应数据库的字符类型，默认‘变长100字节’ '
-    def __init__(self,name=None,column_type='varchar(100)',primary_key=False,default=None):
+    def __init__(self,name=None,ddl='varchar(100)',primary_key=False,default=None):
         # ' 可传入参数列名、主键、默认值、数据类型 '
-        super().__init__(name,column_type,primary_key,default) #对应列名、数据类型、主键、默认值
+        super().__init__(name,ddl,primary_key,default) #对应列名、数据类型、主键、默认值
     #Boolean不能做主键
 class BooleanField(Field):
     # ' 从Field继承，定义一个布尔类，在ORM中对应数据库的布尔类型 '
-    def __init__(self,name=None,default=None):
+    def __init__(self,name=None,default=False):
         # ' 可传入参数列名、默认值 '
         super().__init__(name,'Boolean',False,default)#对应列名、数据类型、主键、默认值
 
