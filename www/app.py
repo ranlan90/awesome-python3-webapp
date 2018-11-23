@@ -7,6 +7,7 @@ import logging;logging.basicConfig(level=logging.INFO)
 # ERROR：更严重的问题,软件没能执行一些功能
 # CRITICAL：一个严重的错误,这表明程序本身可能无法继续运行
 import asyncio, os, json, time
+from datetime import datetime
 # asyncio 协程模块，服务器的构建需要监听多个URL，所以需要协程模块
 
 # os模块，系统接口
@@ -21,45 +22,122 @@ import asyncio, os, json, time
 
 
 from aiohttp import web
+from jinja2 import Environment,FileSystemLoader
+# jinja2模块中有一个名为Enviroment的类，这个类的实例用于存储配置和全局对象，然后从文件系统或其他位置中加载模板。FileSystemLoader文件系统加载器，不需要模板文件存在某个Python包下，可以直接访问系统中的文件。
 
-def index(requset):
-	return web.Response(body='<h1>Awesome</h1>'.encode(), content_type='text/html')
-# 1.函数名随意取。该函数的作用是处理URL，之后将与具体URL绑定
+import orm
+from coroweb import add_routes,add_static
 
-# 　　2.参数，aiohttp.web.request实例，包含了所有浏览器发送过来的 HTTP 协议里面的信息，一般不用自己构造
+# 中jinja2模板的初始化也需要我们在app.py中实现
+def init_jinja2(app, **kw):
+    logging.info('init jinja2...')
+    options = dict(
+        autoescape = kw.get('autoescape', True),
+        block_start_string = kw.get('block_start_string', '{%'),
+        block_end_string = kw.get('block_end_string', '%}'),
+        variable_start_string = kw.get('variable_start_string', '{{'),
+        variable_end_string = kw.get('variable_end_string', '}}'),
+        auto_reload = kw.get('auto_reload', True)
+    )
+    path = kw.get('path', None)
+    if path is None:
+        path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'templates')
+        # templates/         <-- 存放模板文件
+    logging.info('set jinja2 template path: %s' % path)
+    env = Environment(loader=FileSystemLoader(path), **options)
+    filters = kw.get('filters', None)
+    if filters is not None:
+        for name, f in filters.items():
+            env.filters[name] = f
+    app['__templating__'] = env
 
-# 　　   具体文档参见 http://aiohttp.readthedocs.org/en/stable/web_reference.html
+# middleware
+# 上面的RequestHandler对于URL做了一系列的处理，但是aiohttp框架最终需要的是返回web.Response对象，实现这一步，这里引入aiohttp框架的web.Application()中的middleware参数。 
+# 简介：middleware是一种拦截器，一个URL在被某个函数处理前，可以经过一系列的middleware的处理。一个middleware可以改变URL的输入、输出，甚至可以决定不继续处理而直接返回。middleware的用处就在于把通用的功能从每个URL处理函数中拿出来，集中放到一个地方。 
+# 当创建web.appliction的时候，可以设置middleware参数，而middleware的设置是通过创建一些middleware factory(协程函数)。这些middleware factory接受一个app实例，一个handler两个参数，并返回一个新的handler。
+# 一个记录URL日志的logger可以简单定义如下：
+async def logger_factory(app, handler):
+    async def logger(request):
+        logging.info('Request: %s %s' % (request.method, request.path))
+        # await asyncio.sleep(0.3)
+        return (await handler(request))
+    return logger
 
-# 　　3.返回值，aiohttp.web.response实例，由web.Response(body='')构造，继承自StreamResponse，功能为构造一个HTTP响应
+async def data_factory(app, handler):
+    async def parse_data(request):
+        if request.method == 'POST':
+            if request.content_type.startswith('application/json'):
+                request.__data__ = await request.json()
+                logging.info('request json: %s' % str(request.__data__))
+            elif request.content_type.startswith('application/x-www-form-urlencoded'):
+                request.__data__ = await request.post()
+                logging.info('request form: %s' % str(request.__data__))
+        return (await handler(request))
+    return parse_data
+# response这个middleware把返回值转换为web.Response对象再返回，以保证满足aiohttp的要求：
+async def response_factory(app, handler):
+    async def response(request):
+        logging.info('Response handler...')
+        r = await handler(request)
+        if isinstance(r, web.StreamResponse):
+            return r
+        if isinstance(r, bytes):
+            resp = web.Response(body=r)
+            resp.content_type = 'application/octet-stream'
+            return resp
+        if isinstance(r, str):
+            if r.startswith('redirect:'):
+                return web.HTTPFound(r[9:])
+            resp = web.Response(body=r.encode('utf-8'))
+            resp.content_type = 'text/html;charset=utf-8'
+            return resp
+        if isinstance(r, dict):
+            template = r.get('__template__')
+            if template is None:
+                resp = web.Response(body=json.dumps(r, ensure_ascii=False, default=lambda o: o.__dict__).encode('utf-8'))
+                resp.content_type = 'application/json;charset=utf-8'
+                return resp
+            else:
+                resp = web.Response(body=app['__templating__'].get_template(template).render(**r).encode('utf-8'))
+                resp.content_type = 'text/html;charset=utf-8'
+                return resp
+        if isinstance(r, int) and r >= 100 and r < 600:
+            return web.Response(r)
+        if isinstance(r, tuple) and len(r) == 2:
+            t, m = r
+            if isinstance(t, int) and t >= 100 and t < 600:
+                return web.Response(t, str(m))
+        # default:
+        resp = web.Response(body=str(r).encode('utf-8'))
+        resp.content_type = 'text/plain;charset=utf-8'
+        return resp
+    return response
+# 其参数中用到的datetime_filter()函数实质是一个拦截器，具体作用在day8中会提及 
+# 先给出代码：
+def datetime_filter(t):
+    delta = int(time.time() - t)
+    if delta < 60:
+        return u'1分钟前'
+    if delta < 3600:
+        return u'%s分钟前' % (delta // 60)
+    if delta < 86400:
+        return u'%s小时前' % (delta // 3600)
+    if delta < 604800:
+        return u'%s天前' % (delta // 86400)
+    dt = datetime.fromtimestamp(t)
+    return u'%s年%s月%s日' % (dt.year, dt.month, dt.day)
 
-# 　　   类声明 class aiohttp.web.Response(*, status=200, headers=None, content_type=None, body=None, text=None)
-
-# 　　4.HTTP 协议格式为： POST /PATH /1.1 /r/n Header1:Value  /r/n .. /r/n HenderN:Valule /r/n Body:Data 该实例构建了一个HTTP响应。
-@asyncio.coroutine
-def init(loop):
-	app = web.Application(loop=loop)
-	app.router.add_route('get','/',index)
-# 定义init函数，标记为协程，传入loop协程参数，app为web服务器的实例，服务器的作用是处理URL，HTTP协议。
-
-# .add_route作用是将URL注册进route（也就是之前处理多个URL时也是注册到route属性），将URL和index处理函数绑定，绑定的作用是当浏览器敲击URL时，返回处理函数的内容，也就是返回一个HTTP响应。
-
-# loop.create_server是创建一个监听服务，后面的参数传入监听服务器的IP、端口、HTTP协议簇。然后init函数返回的就是这个监听服务。aiohttp.RequestHandlerFactory 可以用 make_handle() 创建，用来处理 HTTP 协议
-
-# get_event_loop创建一个事件循环，然后使用run_until_complete将协程注册到事件循环，并启动事件循环。实际也是一个协程。创建事件循环的目的是因为协程对象开始运行需要在一个已经运作的协程中。
-
-# run_until_complete()是一个阻塞调用，将协程注册到事件循环，并启动事件循环，直到返回结果。因为协程对象开始运行需要在一个已经运作的协程中，所以这个函数实际就是将传入的协程对象，用ensure_future函数包装成一个future。应该就是将协程注册到事件循环中了，然后函数再启动这个循环。
-
-# run_forever()指一直运行协程，直到调用stop()函数。保证服务器一直开启监听状态。如果不一直将loop.run_forever则在运行一次init之后，返回监听服务，run_until_complete就结束了。
-
-	srv = yield from loop.create_server(app.make_handler(),'127.0.0.1',9000)
-# 	三，用协程创建监听服务，并使用aiohttp中的HTTP协议簇(protocol_factory)
-# 	　　1.用协程创建监听服务，其中loop为传入函数的协程，调用其类方法创建一个监听服务，声明如下
-
-# 　　 coroutine BaseEventLoop.create_server(protocol_factory, host=None, port=None, *, family=socket.AF_UNSPEC, flags=socket.AI_PASSIVE, sock=None, backlog=100, ssl=None, reuse_address=None, reuse_port=None)
-
-# 　　2.yield from 返回一个创建好的，绑定IP、端口、HTTP协议簇的监听服务的协程。yield from的作用是使srv的行为模式和 loop.create_server()一致
-	logging.info('server started at http://127.0.0.1:9000...')
-	return srv
+async def init(loop):
+    await orm.create_pool(loop=loop, host='127.0.0.1', port=3306, user='www-data', password='www-data', db='awesome')
+    app = web.Application(loop=loop, middlewares=[
+        logger_factory, response_factory
+    ])
+    init_jinja2(app, filters=dict(datetime=datetime_filter))
+    add_routes(app, 'handlers')
+    add_static(app)
+    srv = await loop.create_server(app.make_handler(), '127.0.0.1', 9000)
+    logging.info('server started at http://127.0.0.1:9000...')
+    return srv
 
 loop = asyncio.get_event_loop()
 loop.run_until_complete(init(loop))
