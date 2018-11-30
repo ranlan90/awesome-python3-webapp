@@ -261,11 +261,9 @@ class Model(dict,metaclass=ModelMetaclass):
                 setattr(self,key,value)
         return value
 
-    @classmethod #添加类方法，对应查表，默认查整个表，可通过where limit设置查找条件
-    #申明是类方法：有类变量cls传入，cls可以做一些相关的处理
-    #有子类继承时，调用该方法，传入的类变量cls是子类，而非父类
+    @classmethod #添加类方法，对应查表，默认查整个表，可通过where limit设置查找条件 #申明是类方法：有类变量cls传入，cls可以做一些相关的处理 #有子类继承时，调用该方法，传入的类变量cls是子类，而非父类
     @asyncio.coroutine
-    def find_all(cls,where=None,args=None,**kw):
+    def findAll(cls,where=None,args=None,**kw):
         sql = [cls.__select__]#用一个列表存储select语句
         if where:#添加where条件
             sql.append('where')
@@ -319,22 +317,8 @@ class Model(dict,metaclass=ModelMetaclass):
         return cls(**rs[0])
         #返回一条记录，以dict的形式返回，因为cls的父类继承了dict类
 
-    #根据条件查找
-    @classmethod
-    @asyncio.coroutine
-    def findAll(cls,**kw):
-        rs = []
-        if len(kw) == 0:
-            rs = yield from select(cls.__select__,None)
-        else:
-            args = []
-            values = []
-            for k,v in kw.items():
-                args.append('%s = ?' %k)
-                values.append(v)
-            print('%s where %s' % (cls.__select__,' and '.join(args)),values)
-            rs = yield from select('%s where %s' % (cls.__select__,' and '.join(args)),values)
-        return rs
+
+
 
     @asyncio.coroutine
     def save(self):
@@ -353,8 +337,8 @@ class Model(dict,metaclass=ModelMetaclass):
             logging.info('failed to update record:affected rows:%s'%rows)
 
     @asyncio.coroutine
-    def delete(self):
+    def remove(self):
         args = [self.getValue(self.__primary_key__)]
-        rows = yield from execute(self.__delete__,args)
+        rows = yield from execute(self.__delete__, args)
         if rows != 1:
-            logging.info('failed to delete by primary key:affected rows:%s'%rows)
+            logging.warn('failed to remove by primary key: affected rows: %s' % rows)
