@@ -54,7 +54,7 @@ def select(sql,args,size=None):
         #查询需要返回查询的结果，返回由dict组成的list，使用完后自动释放所以游标cursor中传入了参数aiomysql.DictCursor
         cur = yield from conn.cursor(aiomysql.DictCursor)
         #执行sql语句前，先将sql语句中的占位符？换成mysql中采用的占位符%s
-        yield from cur.execute(sql.replace('?','%s'),args or ())
+        yield from cur.execute(sql.replace('?', '%s'), args or ())
         if size:
             # 只接收size条返回结果行。如果size的值大于返回的结果行的数量，则会返回cursor.arraysize条数据。返回的结果是一个元组，元组的元素也是元组，由每行数据组成；
             rs = yield from cur.fetchmany(size)
@@ -282,11 +282,12 @@ class Model(dict,metaclass=ModelMetaclass):
                 args.append(limit)
             elif isinstance(limit,tuple) and len(limit) == 2: #略过前limit[0]条记录，开始截取limit[1]条记录
                 sql.append('?,?')
-                args.append(limit) #将limit合并到args列表的末尾
+                args.extend(limit) #将limit合并到args列表的末尾
             else:
                 raise ValueError('invalid limit value:%s'%str(limit))
         #返回的rs是一个元素是tuple的list
-        rs = yield from select(' '.join(sql),args)#构造更新后的select语句，并执行，返回属性值[{},{},{}]
+        rs = yield from select(' '.join(sql),args)
+        #构造更新后的select语句，并执行，返回属性值[{},{},{}]
         return [cls(**r) for r in rs]
         #**r 是关键字参数，构成了一个cls类的列表，其实就是每一条记录对应的类实例
         #返回一个列表。每个元素都是一个dict，相当于一行记录
